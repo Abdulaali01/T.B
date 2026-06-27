@@ -28,10 +28,25 @@ button{border:0;color:white;font-weight:bold;cursor:pointer}
 .item div{margin-bottom:7px;word-break:break-word}
 .out{background:#eef2ff}
 #r_previewBox img{max-width:100%;max-height:250px;border-radius:10px;border:2px solid #ccc}
+.share-sheet{position:fixed;bottom:0;left:0;right:0;background:#fff;border-radius:20px 20px 0 0;padding:20px;box-shadow:0 -4px 20px rgba(0,0,0,.2);z-index:200;transform:translateY(100%);transition:transform .3s}
+.share-sheet.show{transform:translateY(0)}
+.share-sheet h4{margin:0 0 15px;text-align:center}
+.share-sheet button{margin:8px 0}
+.overlay{position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:150;display:none}
+.overlay.show{display:block}
 @media(max-width:520px){.nav button{font-size:12px;padding:11px 3px}.search-row,.flex-row{display:block}.search-row button{width:100%}}
 </style>
 </head>
 <body>
+
+<!-- شيت المشاركة -->
+<div id="overlay" class="overlay" onclick="closeShare()"></div>
+<div id="shareSheet" class="share-sheet">
+  <h4>📤 تصدير الملف</h4>
+  <button class="btn-green" onclick="shareViaApp()">🚀 مشاركة عبر التطبيقات</button>
+  <button class="btn-blue" onclick="downloadBase64()">💾 تحميل الملف</button>
+  <button class="btn-red" onclick="closeShare()">❌ إغلاق</button>
+</div>
 
 <div class="nav">
   <button class="a" onclick="showTab('tabOCR')">📷 تحليل</button>
@@ -131,12 +146,19 @@ button{border:0;color:white;font-weight:bold;cursor:pointer}
 </div>
 
 <script>
+// ===== متغيرات التصدير المؤقتة =====
+let pendingBlob = null;
+let pendingFilename = "";
+let pendingMime = "";
+
 function showTab(id){
   document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
   document.getElementById(id).classList.add('active');
 }
+
 function clean(v){return String(v||"").trim()}
 function cleanKey(v){return clean(v).replace(/\s/g,'').toLowerCase()}
+
 function findCol(row,names){
   const keys=Object.keys(row||{});
   for(const n of names){
@@ -145,6 +167,7 @@ function findCol(row,names){
   }
   return null;
 }
+
 function phoneFix(p){
   p=clean(p).replace(/\D/g,'');
   if(p.startsWith('966'))return p;
@@ -152,6 +175,7 @@ function phoneFix(p){
   if(p.startsWith('5')&&p.length===9)return '966'+p;
   return p;
 }
+
 function readExcelFile(file,cb,msgEl){
   const r=new FileReader();
   r.onload=function(e){
@@ -159,16 +183,21 @@ function readExcelFile(file,cb,msgEl){
       const wb=XLSX.read(new Uint8Array(e.target.result),{type:'array'});
       const rows=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{defval:""});
       cb(rows);
-    }catch(err){ if(msgEl) msgEl.textContent="خطأ في قراءة Excel"; else alert("خطأ في قراءة Excel"); }
+    }catch(err){ 
+      if(msgEl) msgEl.textContent="خطأ في قراءة Excel"; 
+      else alert("خطأ في قراءة Excel"); 
+    }
   };
   r.readAsArrayBuffer(file);
 }
+
 function normalizeREQ(raw){
   let s=clean(raw).toUpperCase().replace(/\s+/g,'').replace(/REO/g,'REQ');
   const m=s.match(/REQ-?\d{2}-?\d{2}-?\d{5,6}/);
   if(!m)return "";
   return m[0].replace(/^REQ-?/,'REQ-').replace(/REQ-(\d{2})-?(\d{2})-?(\d+)/,'REQ-$1-$2-$3');
 }
+
 function normalizeINC(raw){
   let s=clean(raw).toUpperCase().replace(/\s+/g,'');
   const m=s.match(/INC-?\d{2}-?\d{2}-?\d{5,6}/);
@@ -176,31 +205,90 @@ function normalizeINC(raw){
   return m[0].replace(/^INC-?/,'INC-').replace(/INC-(\d{2})-?(\d{2})-?(\d+)/,'INC-$1-$2-$3');
 }
 
-/* ============ تصدير داخلي (ما يخرج من التطبيق) ============ */
-function downloadBlob(data, filename, mimeType) {
-  const blob = new Blob([data], { type: mimeType });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  setTimeout(() => {
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-  }, 100);
+// ===== نظام التصدير الجديد (ما يخرج من التطبيق) =====
+
+function openShareSheet(blob, filename, mime) {
+  pendingBlob = blob;
+  pendingFilename = filename;
+  pendingMime = mime;
+  document.getElementById('overlay').classList.add('show');
+  document.getElementById('shareSheet').classList.add('show');
 }
 
+function closeShare() {
+  document.getElementById('overlay').classList.remove('show');
+  document.getElementById('shareSheet').classList.remove('show');
+  pendingBlob = null;
+}
+
+async function shareViaApp() {
+  if (!pendingBlob) return;
+  try {
+    const file = new File([pendingBlob], pendingFilename, { type: pendingMime });
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      await navigator.share({ files: [file], title: pendingFilename });
+    } else {
+      alert("المشاركة غير مدعومة على هذا الجهاز");
+    }
+  } catch (e) {
+    console.log(e);
+  }
+  closeShare();
+}
+
+function downloadBase64() {
+  if (!pendingBlob) return;
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    const base64 = e.target.result;
+    // في WebView التطبيق، نفتح Data URI في نفس الصفحة
+    const newWindow = window.open();
+    if (newWindow) {
+      newWindow.document.write(`
+        <html dir="rtl">
+        <head><meta charset="UTF-8"><title>تحميل ${pendingFilename}</title></head>
+        <body style="font-family:tahoma;text-align:center;padding:40px;">
+        <h2>📁 ${pendingFilename}</h2>
+        <p>اضغط الزر أدناه لتحميل الملف</p>
+        <a href="${base64}" download="${pendingFilename}" 
+           style="display:inline-block;padding:15px 30px;background:#2563eb;color:#fff;text-decoration:none;border-radius:10px;font-size:18px;">
+           ⬇️ تحميل الملف</a>
+        </body></html>
+      `);
+    } else {
+      // لو ما فتحت نافذة، نعرض رابط مباشر
+      const a = document.createElement('a');
+      a.href = base64;
+      a.download = pendingFilename;
+      a.style.display = 'none';
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(() => document.body.removeChild(a), 100);
+    }
+  };
+  reader.readAsDataURL(pendingBlob);
+  closeShare();
+}
+
+// ===== تصدير Excel =====
 function exportRows(rows, file, sheet) {
   if (!rows || !rows.length) { alert("لا يوجد بيانات محفوظة"); return; }
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), sheet || "Sheet1");
-  const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
-  downloadBlob(wbout, file, 'application/octet-stream');
+  
+  try {
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), sheet || "Sheet1");
+    const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+    const blob = new Blob([wbout], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    openShareSheet(blob, file, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  } catch (e) {
+    alert("خطأ في التصدير: " + e.message);
+  }
 }
 
+// ===== تصدير CSV =====
 function exportCSV(rows, file) {
   if (!rows || !rows.length) { alert("لا يوجد بيانات"); return; }
+  
   const headers = Object.keys(rows[0]);
   let csv = '\uFEFF' + headers.join(",") + "\n";
   rows.forEach(row => {
@@ -212,7 +300,9 @@ function exportCSV(rows, file) {
     });
     csv += values.join(",") + "\n";
   });
-  downloadBlob(csv, file, 'text/csv;charset=utf-8;');
+  
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  openShareSheet(blob, file, 'text/csv');
 }
 
 /* ============ تحليل ============ */
