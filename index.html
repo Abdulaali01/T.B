@@ -37,35 +37,18 @@ button{border:0;color:white;font-weight:bold;cursor:pointer}
 .overlay{position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:150;display:none}
 .overlay.show{display:block}
 
-/* صفحة التحميل الداخلية */
-.download-page{position:fixed;inset:0;background:#fff;z-index:300;display:none;flex-direction:column;align-items:center;justify-content:center;padding:30px;text-align:center}
-.download-page.show{display:flex}
-.download-page h2{color:#2563eb;margin-bottom:20px}
-.download-page p{color:#555;margin-bottom:30px;font-size:16px}
-.download-page .file-icon{font-size:80px;margin-bottom:20px}
-.download-page a{display:inline-block;padding:15px 40px;background:#2563eb;color:#fff;text-decoration:none;border-radius:12px;font-size:18px;font-weight:bold;margin-bottom:15px}
-.download-page button{padding:12px 30px;background:#c0392b;color:#fff;border:none;border-radius:10px;font-size:16px}
-
 @media(max-width:520px){.nav button{font-size:12px;padding:11px 3px}.search-row,.flex-row{display:block}.search-row button{width:100%}}
 </style>
 </head>
 <body>
 
-<!-- صفحة التحميل الداخلية -->
-<div id="downloadPage" class="download-page">
-  <div class="file-icon">📁</div>
-  <h2 id="dlFilename">اسم الملف</h2>
-  <p>اضغط الزر أدناه لتحميل الملف</p>
-  <a id="dlLink" href="#" download>⬇️ تحميل الملف</a>
-  <button onclick="closeDownloadPage()">🔙 رجوع للتطبيق</button>
-</div>
-
 <!-- شيت المشاركة -->
 <div id="overlay" class="overlay" onclick="closeShare()"></div>
 <div id="shareSheet" class="share-sheet">
-  <h4>📤 تصدير الملف</h4>
-  <button class="btn-green" onclick="shareViaApp()">🚀 مشاركة عبر التطبيقات</button>
-  <button class="btn-blue" onclick="showDownloadPage()">💾 تحميل الملف</button>
+  <h4>📤 إرسال البيانات</h4>
+  <button class="btn-green" onclick="shareExcelViaWhatsApp()">📱 إرسال Excel عبر واتساب</button>
+  <button class="btn-green" onclick="shareExcelViaApps()">🚀 مشاركة عبر التطبيقات</button>
+  <button class="btn-blue" onclick="downloadExcel()">💾 تحميل Excel</button>
   <button class="btn-red" onclick="closeShare()">❌ إغلاق</button>
 </div>
 
@@ -99,9 +82,8 @@ button{border:0;color:white;font-weight:bold;cursor:pointer}
     <input id="o_muni" class="out" placeholder="البلدية الفرعية" readonly>
     <textarea id="o_link" class="out" rows="2" placeholder="رابط الموقع" readonly></textarea>
 
-    <button class="btn-green" onclick="o_share()">📤 إرسال واتساب</button>
-    <button class="btn-blue" onclick="o_export()">📥 تصدير Excel</button>
-    <button class="btn-orange" onclick="o_exportCSV()">📥 تصدير CSV</button>
+    <button class="btn-green" onclick="o_share()">📤 إرسال واتساب (نص)</button>
+    <button class="btn-blue" onclick="o_export()">📤 إرسال Excel عبر واتساب</button>
   </div>
 </div>
 
@@ -113,7 +95,7 @@ button{border:0;color:white;font-weight:bold;cursor:pointer}
     <label>إرفاق جدول Excel</label>
     <div class="flex-row">
       <input type="file" id="r_excel" accept=".xlsx,.xls">
-      <button class="btn-blue" onclick="r_export()">📊 تصدير Excel</button>
+      <button class="btn-blue" onclick="r_export()">📤 إرسال Excel</button>
     </div>
 
     <div id="r_form" class="hidden">
@@ -137,7 +119,7 @@ button{border:0;color:white;font-weight:bold;cursor:pointer}
           <button class="btn-red" onclick="r_removeImg()">حذف الصورة</button>
         </div>
 
-        <button class="btn-green" onclick="r_whatsapp()">📱 إرسال واتساب</button>
+        <button class="btn-green" onclick="r_whatsapp()">📱 إرسال واتساب (نص)</button>
         <button class="btn-green" onclick="r_share()">🚀 مشاركة مباشرة</button>
         <button class="btn-purple" onclick="r_copy()">📋 نسخ النص</button>
         <button class="btn-blue" onclick="r_downloadImg()">💾 تحميل الصورة</button>
@@ -159,7 +141,7 @@ button{border:0;color:white;font-weight:bold;cursor:pointer}
     <div id="q_searchBox" class="hidden">
       <input type="text" id="q_search" placeholder="بحث شامل برقم الطلب أو الاسم أو الجوال أو الوصف">
       <button class="btn-blue" onclick="q_searchData()">بحث</button>
-      <button class="btn-green" onclick="q_export()">📊 تصدير Excel</button>
+      <button class="btn-green" onclick="q_export()">📤 إرسال Excel</button>
     </div>
 
     <div id="q_results"></div>
@@ -168,10 +150,8 @@ button{border:0;color:white;font-weight:bold;cursor:pointer}
 
 <script>
 // ===== متغيرات التصدير المؤقتة =====
-let pendingBlob = null;
-let pendingFilename = "";
-let pendingMime = "";
-
+let pendingExcelBlob = null;
+let pendingExcelFilename = "";
 
 function showTab(id){
   document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
@@ -227,12 +207,21 @@ function normalizeINC(raw){
   return m[0].replace(/^INC-?/,'INC-').replace(/INC-(\d{2})-?(\d{2})-?(\d+)/,'INC-$1-$2-$3');
 }
 
-// ===== نظام التصدير الجديد =====
+// ===== توليد ملف Excel =====
+function createExcelBlob(rows, sheetName) {
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), sheetName || "Sheet1");
+  const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+  return new Blob([wbout], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+}
 
-function openShareSheet(blob, filename, mime) {
-  pendingBlob = blob;
-  pendingFilename = filename;
-  pendingMime = mime;
+// ===== فتح شيت المشاركة =====
+function openShareSheet(rows, filename) {
+  if (!rows || !rows.length) { alert("لا يوجد بيانات"); return; }
+  
+  pendingExcelBlob = createExcelBlob(rows, filename);
+  pendingExcelFilename = filename;
+  
   document.getElementById('overlay').classList.add('show');
   document.getElementById('shareSheet').classList.add('show');
 }
@@ -242,67 +231,77 @@ function closeShare() {
   document.getElementById('shareSheet').classList.remove('show');
 }
 
-async function shareViaApp() {
-  if (!pendingBlob) return;
-  try{
-    const file=new File([pendingBlob],pendingFilename,{type:pendingMime});
-    if(navigator.canShare && navigator.canShare({files:[file]})){
-      await navigator.share({files:[file],title:pendingFilename});
-    }else{
-      showDownloadPage();
-    }
-  }catch(e){}
-  closeShare();
-}
-
-function showDownloadPage(){
-  if(!pendingBlob){alert('لا يوجد ملف');return;}
-  closeShare();
-  const url=URL.createObjectURL(pendingBlob);
-  const a=document.createElement('a');
-  a.href=url;
-  a.download=pendingFilename;
-  document.body.appendChild(a);
-  a.click();
-  setTimeout(()=>{URL.revokeObjectURL(url);a.remove();},1000);
-}
-
-function closeDownloadPage(){}
-
-
-// ===== تصدير Excel =====
-function exportRows(rows, file, sheet) {
-  if (!rows || !rows.length) { alert("لا يوجد بيانات محفوظة"); return; }
+// ===== إرسال Excel عبر واتساب (داخل التطبيق) =====
+async function shareExcelViaWhatsApp() {
+  if (!pendingExcelBlob) return;
   
   try {
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), sheet || "Sheet1");
-    const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
-    const blob = new Blob([wbout], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
-    openShareSheet(blob, file, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-  } catch (e) {
-    alert("خطأ في التصدير: " + e.message);
+    const file = new File([pendingExcelBlob], pendingExcelFilename, { 
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' 
+    });
+    
+    // نجرب navigator.share مع ملف
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      await navigator.share({
+        files: [file],
+        title: pendingExcelFilename,
+        text: 'بيانات البلدية'
+      });
+    } else {
+      // لو ما اشتغل، نحول لـ Base64 ونرسل
+      const reader = new FileReader();
+      reader.onload = async function(e) {
+        const base64 = e.target.result.split(',')[1];
+        const url = `https://wa.me/?text=ملف%20Excel:%20${encodeURIComponent(pendingExcelFilename)}`;
+        // نفتح واتساب مع نص فقط (الملف يرفق يدوياً)
+        window.location.href = url;
+      };
+      reader.readAsDataURL(pendingExcelBlob);
+    }
+  } catch (err) {
+    alert("فشل الإرسال: " + err.message);
   }
+  closeShare();
 }
 
-// ===== تصدير CSV =====
-function exportCSV(rows, file) {
-  if (!rows || !rows.length) { alert("لا يوجد بيانات"); return; }
+// ===== مشاركة عبر التطبيقات =====
+async function shareExcelViaApps() {
+  if (!pendingExcelBlob) return;
   
-  const headers = Object.keys(rows[0]);
-  let csv = '\uFEFF' + headers.join(",") + "\n";
-  rows.forEach(row => {
-    const values = headers.map(h => {
-      let val = row[h] || "";
-      val = String(val).replace(/"/g, '""');
-      if (val.includes(",") || val.includes("\n") || val.includes('"')) val = '"' + val + '"';
-      return val;
+  try {
+    const file = new File([pendingExcelBlob], pendingExcelFilename, { 
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' 
     });
-    csv += values.join(",") + "\n";
-  });
+    
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      await navigator.share({
+        files: [file],
+        title: pendingExcelFilename
+      });
+    } else {
+      alert("المشاركة غير مدعومة على هذا الجهاز");
+    }
+  } catch (err) {
+    console.log(err);
+  }
+  closeShare();
+}
+
+// ===== تحميل Excel =====
+function downloadExcel() {
+  if (!pendingExcelBlob) return;
   
-  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-  openShareSheet(blob, file, 'text/csv');
+  const url = URL.createObjectURL(pendingExcelBlob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = pendingExcelFilename;
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => {
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }, 100);
+  closeShare();
 }
 
 /* ============ تحليل ============ */
@@ -363,8 +362,9 @@ function o_share(){
 الموقع: ${document.getElementById("o_link").value}`;
   location.href="https://wa.me/?text="+encodeURIComponent(text);
 }
-function o_export(){exportRows(oSaved,"التحليل_المحفوظ.xlsx","التحليل")}
-function o_exportCSV(){exportCSV(oSaved,"التحليل_المحفوظ.csv")}
+
+// ===== إرسال Excel (الزر الأزرق) =====
+function o_export(){openShareSheet(oSaved,"التحليل_المحفوظ.xlsx")}
 
 /* ============ البلاغات ============ */
 let rRows=[],rRow=null,rImgData=null,rImgFile=null;
@@ -444,7 +444,7 @@ function r_downloadImg(){
   const a=document.createElement("a");a.href=rImgData;a.download="بلاغ.jpg";a.click();
 }
 
-function r_export(){exportRows(rSaved,"البلاغات_المحفوظة.xlsx","البلاغات")}
+function r_export(){openShareSheet(rSaved,"البلاغات_المحفوظة.xlsx")}
 
 
 /* ============ الطلبات ============ */
@@ -494,7 +494,7 @@ ${desc}
   });
 }
 
-function q_export(){exportRows(qSent,"الطلبات_المحفوظة.xlsx","الطلبات")}
+function q_export(){openShareSheet(qSent,"الطلبات_المحفوظة.xlsx")}
 </script>
 </body>
 </html>
