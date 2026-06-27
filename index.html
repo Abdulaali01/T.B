@@ -28,23 +28,44 @@ button{border:0;color:white;font-weight:bold;cursor:pointer}
 .item div{margin-bottom:7px;word-break:break-word}
 .out{background:#eef2ff}
 #r_previewBox img{max-width:100%;max-height:250px;border-radius:10px;border:2px solid #ccc}
+
+/* شيت المشاركة */
 .share-sheet{position:fixed;bottom:0;left:0;right:0;background:#fff;border-radius:20px 20px 0 0;padding:20px;box-shadow:0 -4px 20px rgba(0,0,0,.2);z-index:200;transform:translateY(100%);transition:transform .3s}
 .share-sheet.show{transform:translateY(0)}
 .share-sheet h4{margin:0 0 15px;text-align:center}
 .share-sheet button{margin:8px 0}
 .overlay{position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:150;display:none}
 .overlay.show{display:block}
+
+/* صفحة التحميل الداخلية */
+.download-page{position:fixed;inset:0;background:#fff;z-index:300;display:none;flex-direction:column;align-items:center;justify-content:center;padding:30px;text-align:center}
+.download-page.show{display:flex}
+.download-page h2{color:#2563eb;margin-bottom:20px}
+.download-page p{color:#555;margin-bottom:30px;font-size:16px}
+.download-page .file-icon{font-size:80px;margin-bottom:20px}
+.download-page a{display:inline-block;padding:15px 40px;background:#2563eb;color:#fff;text-decoration:none;border-radius:12px;font-size:18px;font-weight:bold;margin-bottom:15px}
+.download-page button{padding:12px 30px;background:#c0392b;color:#fff;border:none;border-radius:10px;font-size:16px}
+
 @media(max-width:520px){.nav button{font-size:12px;padding:11px 3px}.search-row,.flex-row{display:block}.search-row button{width:100%}}
 </style>
 </head>
 <body>
+
+<!-- صفحة التحميل الداخلية -->
+<div id="downloadPage" class="download-page">
+  <div class="file-icon">📁</div>
+  <h2 id="dlFilename">اسم الملف</h2>
+  <p>اضغط الزر أدناه لتحميل الملف</p>
+  <a id="dlLink" href="#" download>⬇️ تحميل الملف</a>
+  <button onclick="closeDownloadPage()">🔙 رجوع للتطبيق</button>
+</div>
 
 <!-- شيت المشاركة -->
 <div id="overlay" class="overlay" onclick="closeShare()"></div>
 <div id="shareSheet" class="share-sheet">
   <h4>📤 تصدير الملف</h4>
   <button class="btn-green" onclick="shareViaApp()">🚀 مشاركة عبر التطبيقات</button>
-  <button class="btn-blue" onclick="downloadBase64()">💾 تحميل الملف</button>
+  <button class="btn-blue" onclick="showDownloadPage()">💾 تحميل الملف</button>
   <button class="btn-red" onclick="closeShare()">❌ إغلاق</button>
 </div>
 
@@ -150,6 +171,7 @@ button{border:0;color:white;font-weight:bold;cursor:pointer}
 let pendingBlob = null;
 let pendingFilename = "";
 let pendingMime = "";
+let pendingBase64 = "";
 
 function showTab(id){
   document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
@@ -205,12 +227,20 @@ function normalizeINC(raw){
   return m[0].replace(/^INC-?/,'INC-').replace(/INC-(\d{2})-?(\d{2})-?(\d+)/,'INC-$1-$2-$3');
 }
 
-// ===== نظام التصدير الجديد (ما يخرج من التطبيق) =====
+// ===== نظام التصدير الجديد =====
 
 function openShareSheet(blob, filename, mime) {
   pendingBlob = blob;
   pendingFilename = filename;
   pendingMime = mime;
+  
+  // تحويل لـ Base64 مباشرة
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    pendingBase64 = e.target.result;
+  };
+  reader.readAsDataURL(blob);
+  
   document.getElementById('overlay').classList.add('show');
   document.getElementById('shareSheet').classList.add('show');
 }
@@ -218,7 +248,6 @@ function openShareSheet(blob, filename, mime) {
 function closeShare() {
   document.getElementById('overlay').classList.remove('show');
   document.getElementById('shareSheet').classList.remove('show');
-  pendingBlob = null;
 }
 
 async function shareViaApp() {
@@ -236,38 +265,23 @@ async function shareViaApp() {
   closeShare();
 }
 
-function downloadBase64() {
-  if (!pendingBlob) return;
-  const reader = new FileReader();
-  reader.onload = function(e) {
-    const base64 = e.target.result;
-    // في WebView التطبيق، نفتح Data URI في نفس الصفحة
-    const newWindow = window.open();
-    if (newWindow) {
-      newWindow.document.write(`
-        <html dir="rtl">
-        <head><meta charset="UTF-8"><title>تحميل ${pendingFilename}</title></head>
-        <body style="font-family:tahoma;text-align:center;padding:40px;">
-        <h2>📁 ${pendingFilename}</h2>
-        <p>اضغط الزر أدناه لتحميل الملف</p>
-        <a href="${base64}" download="${pendingFilename}" 
-           style="display:inline-block;padding:15px 30px;background:#2563eb;color:#fff;text-decoration:none;border-radius:10px;font-size:18px;">
-           ⬇️ تحميل الملف</a>
-        </body></html>
-      `);
-    } else {
-      // لو ما فتحت نافذة، نعرض رابط مباشر
-      const a = document.createElement('a');
-      a.href = base64;
-      a.download = pendingFilename;
-      a.style.display = 'none';
-      document.body.appendChild(a);
-      a.click();
-      setTimeout(() => document.body.removeChild(a), 100);
-    }
-  };
-  reader.readAsDataURL(pendingBlob);
+// ===== صفحة التحميل الداخلية (ما تفتح نافذة جديدة) =====
+function showDownloadPage() {
+  if (!pendingBase64) {
+    alert("جاري تحضير الملف... حاول مرة أخرى");
+    return;
+  }
+  
   closeShare();
+  
+  document.getElementById('dlFilename').textContent = pendingFilename;
+  document.getElementById('dlLink').href = pendingBase64;
+  document.getElementById('dlLink').download = pendingFilename;
+  document.getElementById('downloadPage').classList.add('show');
+}
+
+function closeDownloadPage() {
+  document.getElementById('downloadPage').classList.remove('show');
 }
 
 // ===== تصدير Excel =====
